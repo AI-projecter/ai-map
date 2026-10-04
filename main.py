@@ -14,6 +14,10 @@ from jose import jwt, JWTError
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 
+import logging
+
+logger = logging.getLogger("uvicorn.error")
+
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 app = FastAPI(title="World AI Map")
 app.mount("/static", StaticFiles(directory=APP_DIR), name="static")
@@ -215,51 +219,132 @@ async def login(data: AuthInput):
 async def me(user=Depends(current_user)):
     return {"email": user["email"]}
 
+@app.post("/api/points/analyze")
+async def analyze_point(data: PointInput, user=Depends(current_user)):
+    lat, lon = round(data.lat, 5), round(data.lon, 5)
+    query = {"user_id": user["_id"], "lat": lat, "lon": lon}
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            logger.info("Analyzing point: lat=%s, lon=%s", lat, lon)
+
+            try:
+                logger.info("Step 1: Reverse geocoding")
+                place = await reverse_geocode(client, lat, lon)
+
+                logger.info("Step 2: Fetching weather")
+                weather = await fetch_weather(client, lat, lon)
+
+                logger.info("Step 3: Checking cache")
+                cached = await points_collection.find_one(query, {"_id": 0})
+
+                # Reuse existing AI and image results
+                if cached and cached.get("analysis") and cached.get("image"):
+                    cached["weather"] = weather
+                    cached["place"] = place
+                    cached["updated_at"] = datetime.now(
+                        timezone.utc
+                    ).isoformat()
+
+                    await points_collection.update_one(
+                        query,
+                        {"$set": {
+                            "weather": weather,
+                            "place": place,
+                            "updated_at": cached["updated_at"]
+                        }}
+                    )
+
+                    logger.info("Cached analysis returned successfully")
+                    return cached
+
+                logger.info("Step 4: Calling Groq")
+                analysis = await groq_analysis(
+                    client, lat, lon, place, weather
+                )
+
+                logger.info("Step 5: Generating image")
+                image_data = await generate_image(
+                    client,
+                    analysis.get(
+                        "image_prompt",
+                        "Realistic landscape photograph"
+                    )
+                )
+
+            except HTTPException:
+                logger.exception("HTTPException during point analysis")
+                raise
+
+            except httpx.HTTPStatusError as exc:
+                logger.exception(
+                    "External API HTTP error: status=%s, response=%s",
+                    exc.response.status_code,
+                    exc.response.text[:1000]
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        f"External API error: "
+                        f"HTTP {exc.response.status_code}"
+                    )
+                )
+
+            except httpx.RequestError:
+                logger.exception("External API connection or timeout error")
+                raise HTTPException(
+                    status_code=502,
+                    detail="Could not connect to an external API."
+                )
+
+            except Exception:
+                logger.exception("Unexpected error during point analysis")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Unexpected error. Check Render logs."
+                )
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        record = {
+            "user_id": user["_id"],
+            "lat": lat,
+            "lon": lon,
+            "place": place,
+            "weather": weather,
+            "analysis": analysis,
+            "image": image_data,
+            "created_at": now,
+            "updated_at": now
+        }
+
+        logger.info("Step 6: Saving result to MongoDB")
+        await points_collection.update_one(
+            query,
+            {"$set": record},
+            upsert=True
+        )
+
+        record.pop("user_id", None)
+        logger.info("Point analysis completed successfully")
+
+        return record
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        logger.exception("Failed to analyze or save point")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error. Check Render logs."
+        )
+
 @app.get("/api/history")
 async def history(user=Depends(current_user)):
     cursor = points_collection.find({"user_id": user["_id"]}, {"_id": 0}).sort("updated_at", -1).limit(100)
     return await cursor.to_list(length=100)
 
-@app.post("/api/points/analyze")
-async def analyze_point(data: PointInput, user=Depends(current_user)):
-    lat, lon = round(data.lat, 5), round(data.lon, 5)
-    query = {"user_id": user["_id"], "lat": lat, "lon": lon}
-    async with httpx.AsyncClient() as client:
-        try:
-            place = await reverse_geocode(client, lat, lon)
-            weather = await fetch_weather(client, lat, lon)
-            cached = await points_collection.find_one(query, {"_id": 0})
-            # Reuse expensive AI/image results for an existing point, but refresh weather.
-            if cached and cached.get("analysis") and cached.get("image"):
-                cached["weather"] = weather
-                cached["place"] = place
-                cached["updated_at"] = datetime.now(timezone.utc).isoformat()
-                await points_collection.update_one(query, {"$set": {
-                    "weather": weather, "place": place, "updated_at": cached["updated_at"]
-                }})
-                return cached
-            analysis = await groq_analysis(client, lat, lon, place, weather)
-            image_data = await generate_image(client, analysis.get("image_prompt", "Realistic landscape photograph"))
-        except HTTPException:
-            raise
-        except httpx.HTTPStatusError as exc:
-            detail = "An external API returned an error."
-            try:
-                detail = exc.response.json().get("message") or detail
-            except Exception:
-                pass
-            raise HTTPException(502, detail)
-        except Exception:
-            raise HTTPException(502, "Could not analyze this point. Please try again.")
-    record = {
-        "user_id": user["_id"], "lat": lat, "lon": lon, "place": place,
-        "weather": weather, "analysis": analysis, "image": image_data,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }
-    await points_collection.update_one(query, {"$set": record}, upsert=True)
-    record.pop("user_id", None)
-    return record
 
 @app.delete("/api/history")
 async def clear_history(user=Depends(current_user)):
