@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10151f">
+  <title>World AI Map</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+</head>
+<body>
+  <div id="auth-screen" class="auth-screen">
+    <form id="auth-form" class="auth-card">
+      <div class="brand-mark">◎</div>
+      <h1>World AI Map</h1>
+      <p class="muted">Исследуй любую точку планеты с помощью AI</p>
+      <div class="auth-tabs">
+        <button type="button" class="tab active" data-mode="login">Войти</button>
+        <button type="button" class="tab" data-mode="register">Регистрация</button>
+      </div>
+      <label>Email<input id="email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
+      <label>Пароль<input id="password" type="password" autocomplete="current-password" minlength="8" required placeholder="Не менее 8 символов"></label>
+      <button class="primary full" type="submit" id="auth-submit">Войти</button>
+      <p id="auth-error" class="error"></p>
+    </form>
+  </div>
+
+  <main id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark small">◎</span><span>World <b>AI</b> Map</span></div>
+      <div class="top-actions">
+        <span id="user-email" class="muted user-email"></span>
+        <button id="logout" class="ghost">Выйти</button>
+      </div>
+    </header>
+    <div class="workspace">
+      <section class="map-wrap">
+        <div id="map"></div>
+        <div class="map-controls">
+          <button id="street-layer" class="layer-button selected">Карта</button>
+          <button id="sat-layer" class="layer-button">Спутник</button>
+        </div>
+        <div class="map-hint">Нажми на любую точку мира</div>
+      </section>
+      <aside class="sidebar">
+        <div class="panel-heading">
+          <div><p class="eyebrow">AI EXPLORER</p><h2>Исследование</h2></div>
+          <button id="refresh-history" class="icon-button" title="Обновить историю">↻</button>
+        </div>
+        <div id="empty-state" class="empty-state">
+          <div class="empty-icon">⌖</div>
+          <h3>Выбери точку на карте</h3>
+          <p class="muted">Мы получим погоду, изучим местность и подготовим AI-описание.</p>
+        </div>
+        <div id="loading" class="loading hidden"><div class="spinner"></div><p>AI исследует выбранную точку…</p><small>Это может занять некоторое время</small></div>
+        <div id="result" class="result hidden">
+          <div class="location-line"><span class="pin">●</span><span id="place-name">Местность</span></div>
+          <p id="coordinates" class="coordinates"></p>
+          <div id="weather" class="weather-card"></div>
+          <div class="section-title">О местности</div>
+          <p id="description" class="description"></p>
+          <div id="image-wrap" class="image-wrap hidden"><img id="location-image" alt="AI-сгенерированное изображение местности"><span class="image-label">AI GENERATED</span></div>
+          <p id="image-note" class="muted image-note hidden">Изображение не было создано: проверь настройки Cloudflare.</p>
+          <div class="audio-row"><button id="speak" class="secondary">▶ Прослушать рассказ</button><span class="muted">Русский язык</span></div>
+          <div class="section-title forecast-title">Прогноз</div>
+          <div id="forecast" class="forecast"></div>
+        </div>
+        <div class="history-heading"><h3>История точек</h3><button id="clear-history" class="text-button">Очистить</button></div>
+        <div id="history" class="history-list"><p class="muted small-text">История появится здесь</p></div>
+      </aside>
+    </div>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
