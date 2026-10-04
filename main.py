@@ -168,20 +168,43 @@ async def groq_analysis(client, lat, lon, place, weather):
 async def generate_image(client, prompt):
     if not CLOUDFLARE_ACCOUNT_ID or not CLOUDFLARE_API_TOKEN:
         return None
-    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/black-forest-labs/flux-1-schnell"
-    response = await client.post(url,
-        headers={"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}"},
-        json={"prompt": prompt, "width": 768, "height": 512, "num_steps": 4},
-        timeout=120)
+
+    url = (
+        f"https://api.cloudflare.com/client/v4/accounts/"
+        f"{CLOUDFLARE_ACCOUNT_ID}/ai/run/"
+        f"@cf/black-forest-labs/flux-1-schnell"
+    )
+
+    response = await client.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "prompt": prompt,
+            "steps": 4
+        },
+        timeout=120
+    )
+
     response.raise_for_status()
+
     content_type = response.headers.get("content-type", "")
+
     if "application/json" in content_type:
         result = response.json()
         encoded = result.get("result", {}).get("image")
+
         if encoded:
             return "data:image/png;base64," + encoded
+
         return None
-    return "data:image/png;base64," + base64.b64encode(response.content).decode("ascii")
+
+    return (
+        "data:image/png;base64,"
+        + base64.b64encode(response.content).decode("ascii")
+    )
 
 @app.get("/", response_class=HTMLResponse)
 async def home():
